@@ -54,6 +54,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            task_info: [0; 500]
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -135,6 +136,20 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// update_syscall_num
+    fn update_syscall_num(&self, syscall_num: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_info[syscall_num] += 1;
+    }
+
+    /// get_syscall_num
+    fn get_syscall_num(&self, syscall_num: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_info[syscall_num]
+    }
 }
 
 /// Run the first task in task list.
@@ -156,6 +171,16 @@ fn mark_current_suspended() {
 /// Change the status of current `Running` task into `Exited`.
 fn mark_current_exited() {
     TASK_MANAGER.mark_current_exited();
+}
+
+/// update_syscall_num
+pub fn update_syscall_num(syscall_num: usize) {
+    TASK_MANAGER.update_syscall_num(syscall_num);
+}
+
+/// get_syscall_num
+pub fn get_syscall_num(syscall_num: usize) -> usize {
+    TASK_MANAGER.get_syscall_num(syscall_num)
 }
 
 /// Suspend the current 'Running' task and run the next task in task list.
