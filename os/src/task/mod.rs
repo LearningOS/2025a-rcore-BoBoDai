@@ -23,6 +23,7 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+use crate::mm::{MapPermission, VirtAddr};
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -153,6 +154,34 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// update
+    fn update_syscall_time(&self, syscall_num: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_info[syscall_num] += 1;
+    }
+
+    /// get
+    fn get_syscall_time(&self, syscall_num: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_info[syscall_num]
+    }
+
+    /// insert_framed_area
+    fn insert_framed_area(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].insert_framed_area(start_va, end_va, permission);
+    }
+
+    /// delete_framed_area
+    fn delete_framed_area(&self, start_va: VirtAddr, end_va: VirtAddr) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].delete_framed_area(start_va, end_va);
+    }
 }
 
 /// Run the first task in task list.
@@ -201,4 +230,24 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// update
+pub fn update_syscall_time(syscall_num: usize) {
+    TASK_MANAGER.update_syscall_time(syscall_num);
+}
+
+/// get
+pub fn get_syscall_time(syscall_num: usize) -> usize {
+    TASK_MANAGER.get_syscall_time(syscall_num)
+}
+
+/// insert_framed_area
+pub fn insert_framed_area(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+    TASK_MANAGER.insert_framed_area(start_va, end_va, permission);
+}
+
+/// delete_framed_area
+pub fn delete_framed_area(start_va: VirtAddr, end_va: VirtAddr) {
+    TASK_MANAGER.delete_framed_area(start_va, end_va);
 }
