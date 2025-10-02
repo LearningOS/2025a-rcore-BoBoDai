@@ -4,7 +4,7 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
+use super::{File, Stat, StatMode};
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
@@ -125,6 +125,28 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     }
 }
 
+/// link_file
+pub fn link_file(old_name: &str, new_name: &str) -> isize {
+    let code = ROOT_INODE.link(old_name, new_name);
+    if code == 0 {
+        let inode = ROOT_INODE.find(old_name).unwrap();
+        inode.modify_disk_inode(|disk_inode| {disk_inode.nlink += 1});
+        return 0;
+    }
+    -1
+}
+
+/// unlink_file
+pub fn unlink_file(name: &str) -> isize {
+    if ROOT_INODE.find(name).is_some() {
+        let inode = ROOT_INODE.find(name).unwrap();
+        inode.modify_disk_inode(|disk_inode| {disk_inode.nlink -= 1});
+        ROOT_INODE.unlink(name)
+    } else {
+        -1
+    }
+}
+
 impl File for OSInode {
     fn readable(&self) -> bool {
         self.readable
@@ -155,5 +177,23 @@ impl File for OSInode {
             total_write_size += write_size;
         }
         total_write_size
+    }
+
+    /// stat
+    fn stat(&self) -> Stat {
+        let inner = self.inner.exclusive_access();
+        let ino = inner.inode.get_ino();
+        let mode = match inner.inode.read_disk_inode(|disk_inode| disk_inode.is_dir()) {
+            true => StatMode::DIR,
+            false => StatMode::FILE,
+        };
+        let nlink = inner.inode.read_disk_inode(|disk_inode| disk_inode.nlink);
+        Stat {
+            dev: 0,
+            ino,
+            mode,
+            nlink,
+            pad: [0; 7],
+        }
     }
 }

@@ -12,6 +12,7 @@ pub struct Inode {
     block_offset: usize,
     fs: Arc<Mutex<EasyFileSystem>>,
     block_device: Arc<dyn BlockDevice>,
+    ino: u64,
 }
 
 impl Inode {
@@ -27,16 +28,17 @@ impl Inode {
             block_offset,
             fs,
             block_device,
+            ino: 0,
         }
     }
     /// Call a function over a disk inode to read it
-    fn read_disk_inode<V>(&self, f: impl FnOnce(&DiskInode) -> V) -> V {
+    pub fn read_disk_inode<V>(&self, f: impl FnOnce(&DiskInode) -> V) -> V {
         get_block_cache(self.block_id, Arc::clone(&self.block_device))
             .lock()
             .read(self.block_offset, f)
     }
     /// Call a function over a disk inode to modify it
-    fn modify_disk_inode<V>(&self, f: impl FnOnce(&mut DiskInode) -> V) -> V {
+    pub fn modify_disk_inode<V>(&self, f: impl FnOnce(&mut DiskInode) -> V) -> V {
         get_block_cache(self.block_id, Arc::clone(&self.block_device))
             .lock()
             .modify(self.block_offset, f)
@@ -170,6 +172,10 @@ impl Inode {
         block_cache_sync_all();
         size
     }
+    /// get ino
+    pub fn get_ino(&self) -> u64 {
+        self.ino
+    }
     /// Clear the data in current inode
     pub fn clear(&self) {
         let mut fs = self.fs.lock();
@@ -182,5 +188,50 @@ impl Inode {
             }
         });
         block_cache_sync_all();
+    }
+
+    /// link
+    pub fn link(&self, old_name: &str, new_name: &str) -> isize {
+        let mut fs = self.fs.lock();
+        if let Some(inode) =
+            self.read_disk_inode(|disk_inode| self.find_inode_id(old_name, disk_inode))
+        {
+            self.modify_disk_inode(|disk_inode| {
+                let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+                let new_size = (file_count + 1) * DIRENT_SZ;
+                self.increase_size(new_size as u32, disk_inode, &mut fs);
+                let dirent = DirEntry::new(new_name, inode);
+                disk_inode.write_at(
+                    file_count * DIRENT_SZ,
+                    dirent.as_bytes(),
+                    &self.block_device,
+                );
+            });
+            0
+        } else {
+            -1
+        }
+    }
+
+    /// unlink
+    pub fn unlink(&self, name: &str) -> isize {
+        self.modify_disk_inode(|disk_inode| {
+            let file_count = disk_inode.size as usize / DIRENT_SZ;
+            let mut dir = DirEntry::empty();
+            for i in 0..file_count {
+                disk_inode.read_at(i * DIRENT_SZ, dir.as_bytes_mut(), &self.block_device);
+                if dir.inode_id() != 0 && dir.name() == name {
+                    if i != file_count - 1 {
+                        let mut last = DirEntry::empty();
+                        disk_inode.read_at((file_count - 1) * DIRENT_SZ, last.as_bytes_mut(), &self.block_device);
+                        disk_inode.write_at(i * DIRENT_SZ, last.as_bytes(), &self.block_device);
+                    }
+                    disk_inode.write_at((file_count - 1) * DIRENT_SZ, DirEntry::empty().as_bytes(), &self.block_device);
+                    disk_inode.size -=  DIRENT_SZ as u32;
+                    return 0;
+                }
+            }
+            -1
+        })
     }
 }
