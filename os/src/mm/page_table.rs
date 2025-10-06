@@ -1,5 +1,6 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
+use crate::task::current_user_token;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -177,6 +178,17 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         start = end_va.into();
     }
     v
+}
+
+/// translated_pa_to_va
+pub fn translated_pa_to_va(ptr: *const u8) -> VirtAddr {
+    let page_table = PageTable::from_token(current_user_token());
+    let ptr = ptr as usize;
+    let va = VirtAddr::from(ptr);
+    let offset = va.page_offset();
+    let vpn = va.floor();
+    let ppn = page_table.translate(vpn).unwrap().ppn();
+    VirtAddr::from(usize::from(ppn) << 12 | offset)
 }
 
 /// Create String in kernel address space from u8 Array(end with 0) in other address space
